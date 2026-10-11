@@ -12,6 +12,8 @@ A minimal plain-text editor for macOS, Windows and Linux.
   "Replace All" streams through the file, so it works on 1 GB files too.
 * Edit → Clear (new document) empties the window.
 * Syntax highlighting (Language menu, detected from the file extension).
+* View → Theme: System, Light or Dark (remembered between launches).
+* Help → About Notepad shows the version.
 
 ## Build and run
 
@@ -22,6 +24,8 @@ cargo run --release -- path/to/file # open a file
 ./build_scripts/bundle-macos.sh --universal  # Apple Silicon + Intel, in target/universal-apple-darwin/release
 cargo test --release                # tests
 ```
+
+The app icon is `assets/icon.png`, drawn by `build_scripts/make_icon.py` (needs Pillow).
 
 ## Prebuilt macOS app
 

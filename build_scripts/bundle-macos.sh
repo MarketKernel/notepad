@@ -24,6 +24,16 @@ APP=$OUT/Notepad.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$OUT/notepad" "$APP/Contents/MacOS/notepad"
+# App icon from assets/icon.png (redraw it with build_scripts/make_icon.py).
+mkdir -p "$APP/Contents/Resources"
+ICONSET=$(mktemp -d)/Notepad.iconset
+mkdir -p "$ICONSET"
+for s in 16 32 128 256 512; do
+  sips -z $s $s assets/icon.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+  sips -z $((s * 2)) $((s * 2)) assets/icon.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Notepad.icns"
+rm -rf "$(dirname "$ICONSET")"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -33,6 +43,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Notepad</string>
   <key>CFBundleIdentifier</key><string>local.notepad.rs</string>
   <key>CFBundleExecutable</key><string>notepad</string>
+  <key>CFBundleIconFile</key><string>Notepad</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>

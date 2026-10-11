@@ -5,10 +5,22 @@ mod buffer;
 mod editor;
 mod fonts;
 mod highlight;
+mod settings;
 #[cfg(target_os = "macos")]
 mod mac_save;
 
 use std::path::PathBuf;
+use std::sync::Arc;
+
+/// The app icon (window / taskbar icon, About box).
+pub fn icon() -> Arc<eframe::egui::IconData> {
+    static ICON: std::sync::OnceLock<Arc<eframe::egui::IconData>> = std::sync::OnceLock::new();
+    ICON.get_or_init(|| {
+        let png = include_bytes!("../assets/icon-256.png");
+        Arc::new(eframe::icon_data::from_png_bytes(png).expect("valid icon png"))
+    })
+    .clone()
+}
 
 fn main() -> eframe::Result {
     // Every launch starts with a clean sheet; a file is opened only if one is
@@ -20,7 +32,8 @@ fn main() -> eframe::Result {
             .with_title("Untitled — Notepad")
             .with_inner_size([900.0, 650.0])
             .with_min_inner_size([320.0, 200.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            .with_icon(icon()),
         persist_window: false,
         ..Default::default()
     };

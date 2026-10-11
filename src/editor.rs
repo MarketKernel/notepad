@@ -25,7 +25,7 @@ const HIGHLIGHT_WARMUP_LINES: u64 = 30;
 const UNDO_LIMIT: usize = 1000;
 /// Refuse to put more than this into the clipboard.
 pub const MAX_CLIPBOARD: u64 = 256 * 1024 * 1024;
-pub const DEFAULT_FONT_SIZE: f32 = 15.0;
+pub const DEFAULT_FONT_SIZE: f32 = 16.0;
 const TEXT_PAD: f32 = 6.0;
 const SCROLLBAR_W: f32 = 12.0;
 

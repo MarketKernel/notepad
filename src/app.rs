@@ -5,12 +5,15 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::Duration;
 
 use eframe::egui::{
-    self, Align, Key, KeyboardShortcut, Layout, Modifiers, RichText, ViewportCommand,
+    self, Align, Key, KeyboardShortcut, Layout, Modifiers, RichText, ThemePreference, ViewportCommand,
 };
 
 use crate::buffer::{Document, Original};
 use crate::editor::{DEFAULT_FONT_SIZE, Editor};
 use crate::highlight;
+use crate::settings;
+
+const REPO_URL: &str = "https://github.com/MarketKernel/notepad";
 
 struct Loading {
     path: PathBuf,
@@ -69,6 +72,9 @@ pub struct NotepadApp {
     allow_close: bool,
     title: String,
     languages: Option<Vec<String>>,
+    theme: ThemePreference,
+    about_open: bool,
+    about_icon: Option<egui::TextureHandle>,
 }
 
 const CMD: Modifiers = Modifiers::COMMAND;
@@ -103,6 +109,8 @@ impl NotepadApp {
         crate::fonts::install(&cc.egui_ctx);
         // Cmd +/- change the editor font size instead of zooming the whole UI.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        let theme = settings::load_theme();
+        cc.egui_ctx.set_theme(theme);
         let mut app = Self {
             editor: Editor::new(Document::new()),
             path: None,
@@ -119,6 +127,9 @@ impl NotepadApp {
             allow_close: false,
             title: String::new(),
             languages: None,
+            theme,
+            about_open: false,
+            about_icon: None,
         };
         if let Some(p) = path {
             app.start_loading(p);
@@ -566,6 +577,19 @@ impl NotepadApp {
                 ui.label("Line endings for new lines:");
                 ui.radio_value(&mut self.editor.crlf, false, "LF (macOS / Linux)");
                 ui.radio_value(&mut self.editor.crlf, true, "CRLF (Windows)");
+                ui.separator();
+                ui.label("Theme:");
+                for (t, name) in [
+                    (ThemePreference::System, "System"),
+                    (ThemePreference::Light, "Light"),
+                    (ThemePreference::Dark, "Dark"),
+                ] {
+                    if ui.radio(self.theme == t, name).clicked() && self.theme != t {
+                        self.theme = t;
+                        ctx.set_theme(t);
+                        settings::save_theme(t);
+                    }
+                }
             });
             ui.menu_button("Language", |ui| {
                 egui::ScrollArea::vertical().max_height(500.0).show(ui, |ui| {
@@ -581,6 +605,11 @@ impl NotepadApp {
                         }
                     }
                 });
+            });
+            ui.menu_button("Help", |ui| {
+                if ui.button("About Notepad").clicked() {
+                    self.about_open = true;
+                }
             });
         });
     }
@@ -679,6 +708,51 @@ impl NotepadApp {
         }
     }
 
+    fn about_window(&mut self, ctx: &egui::Context) {
+        let icon = self
+            .about_icon
+            .get_or_insert_with(|| {
+                let data = crate::icon();
+                let img = egui::ColorImage::from_rgba_unmultiplied(
+                    [data.width as usize, data.height as usize],
+                    &data.rgba,
+                );
+                ctx.load_texture("about-icon", img, egui::TextureOptions::LINEAR)
+            })
+            .clone();
+        let mut open = self.about_open;
+        let mut done = false;
+        egui::Window::new("About Notepad")
+            .title_bar(false)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_width(280.0);
+                ui.vertical_centered(|ui| {
+                    ui.add_space(8.0);
+                    ui.add(egui::Image::new(&icon).fit_to_exact_size(egui::vec2(96.0, 96.0)));
+                    ui.add_space(4.0);
+                    ui.heading("Notepad");
+                    ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                    ui.add_space(4.0);
+                    ui.label("A minimal plain-text editor.");
+                    ui.hyperlink_to("github.com/MarketKernel/notepad", REPO_URL);
+                    ui.add_space(8.0);
+                    let ok = ui.button("  OK  ");
+                    // Takes focus from the editor, and Enter / Space press it.
+                    ok.request_focus();
+                    done = ok.clicked();
+                    ui.add_space(4.0);
+                });
+            });
+        if done || !open || ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.about_open = false;
+            self.editor.request_focus(ctx);
+        }
+    }
+
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if let Some(n) = self.editor.notice.take() {
@@ -766,6 +840,9 @@ impl eframe::App for NotepadApp {
         if self.goto_open {
             self.goto_window(&ctx);
         }
+        if self.about_open {
+            self.about_window(&ctx);
+        }
         self.update_title(&ctx);
     }
 }
@@ -843,5 +920,12 @@ mod screenshots {
         h.state_mut().find(false);
         h.run_steps(3);
         h.render().unwrap().save(dir.join("app-paste.png")).unwrap();
+
+        // Dark theme with the About box.
+        h.ctx.set_theme(egui::Theme::Dark);
+        h.state_mut().find_open = false;
+        h.state_mut().about_open = true;
+        h.run_steps(3);
+        h.render().unwrap().save(dir.join("app-about.png")).unwrap();
     }
 }
