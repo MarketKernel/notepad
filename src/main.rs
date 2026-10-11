@@ -7,6 +7,8 @@ mod fonts;
 mod highlight;
 mod settings;
 #[cfg(target_os = "macos")]
+mod mac_open;
+#[cfg(target_os = "macos")]
 mod mac_save;
 
 use std::path::PathBuf;
@@ -24,7 +26,7 @@ pub fn icon() -> Arc<eframe::egui::IconData> {
 
 fn main() -> eframe::Result {
     // Every launch starts with a clean sheet; a file is opened only if one is
-    // passed on the command line.
+    // passed on the command line (or, on macOS, opened from Finder).
     let path = std::env::args_os().nth(1).map(PathBuf::from);
 
     let mut options = eframe::NativeOptions {
@@ -43,6 +45,7 @@ fn main() -> eframe::Result {
     // Cmd+Q reaches the app as a normal shortcut.
     #[cfg(target_os = "macos")]
     {
+        mac_open::install();
         options.event_loop_builder = Some(Box::new(|builder| {
             use winit::platform::macos::EventLoopBuilderExtMacOS;
             builder.with_default_menu(false);

@@ -366,10 +366,25 @@ impl NotepadApp {
         self.message = None;
     }
 
-    fn new_window(&mut self) {
-        let result = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).spawn());
+    /// A new window (a separate process), optionally opening `path` in it.
+    fn new_window(&mut self, path: Option<&Path>) {
+        let result = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).args(path).spawn());
         if let Err(e) = result {
             self.message = Some(format!("Cannot start a new window: {e}"));
+        }
+    }
+
+    /// A file opened from Finder: it replaces a blank window, otherwise it
+    /// gets a window of its own.
+    #[cfg(target_os = "macos")]
+    fn open_from_finder(&mut self, p: PathBuf) {
+        if self.path.as_ref() == Some(&p) {
+            return;
+        }
+        if self.path.is_none() && self.loading.is_none() && !self.editor.is_modified() {
+            self.start_loading(p);
+        } else {
+            self.new_window(Some(&p));
         }
     }
 
@@ -440,7 +455,7 @@ impl NotepadApp {
             self.open_dialog();
         }
         if pressed(sc(CMD, Key::N)) {
-            self.new_window();
+            self.new_window(None);
         }
         if pressed(sc(CMD, Key::W)) || pressed(sc(CMD, Key::Q)) {
             ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -498,7 +513,7 @@ impl NotepadApp {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.add(egui::Button::new("New Window").shortcut_text(short(sc(CMD, Key::N)))).clicked() {
-                    self.new_window();
+                    self.new_window(None);
                 }
                 if ui.add(egui::Button::new("Open…").shortcut_text(short(sc(CMD, Key::O)))).clicked() {
                     self.open_dialog();
@@ -810,6 +825,10 @@ impl eframe::App for NotepadApp {
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
         if let Some(p) = dropped.into_iter().next() {
             self.open_path(p);
+        }
+        #[cfg(target_os = "macos")]
+        for p in crate::mac_open::take(&ctx) {
+            self.open_from_finder(p);
         }
 
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));

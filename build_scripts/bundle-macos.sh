@@ -49,6 +49,21 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <!-- Puts Notepad into Finder's "Open With" for text (and any other) files
+       without making it the default app; Get Info → "Change All…" does that. -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Document</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.text</string>
+        <string>public.data</string>
+      </array>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST

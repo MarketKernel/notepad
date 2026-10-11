@@ -5,7 +5,7 @@ A minimal plain-text editor for macOS, Windows and Linux.
 * Opens files of any size (tested with 1 GB+) without loading them into memory:
   the file is read on demand, edits are kept in a piece table.
 * Plain text only — paste formatted text, copy it back, and the formatting is gone.
-* Every launch starts with an empty, untitled document.
+* Every launch starts with an empty, untitled document (unless a file is opened).
 * Asks whether to save unsaved changes when the window is closed.
 * One document per window; `Cmd/Ctrl+N` opens another window (a separate process).
 * Find and replace (case-insensitive search also works for Cyrillic etc.).
@@ -64,7 +64,10 @@ System Settings → Privacy & Security.
 | L | Go to line |
 | = / - / 0 | Font size |
 
-Files can also be dropped onto the window.
+Files can also be dropped onto the window. On macOS, Notepad.app shows up in
+Finder's "Open With" menu (for it to become the default app for a file type, use
+Get Info → Open with → Change All…). A file opened this way replaces a blank
+window, otherwise it opens in a new one.
 
 ## Limitations
 
@@ -72,5 +75,4 @@ Files can also be dropped onto the window.
 * Lines longer than 64 KB are shown truncated (they can still be edited and are saved in full).
 * Copying more than 256 MB to the clipboard is refused.
 * Saving writes a temporary file next to the target and renames it over the original.
-* macOS "Open With…" from Finder is not supported yet (use the menu, drag and drop, or the command line).
 * Windows and Linux builds compile but have not been tested yet.

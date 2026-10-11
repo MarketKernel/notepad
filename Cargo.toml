@@ -1,6 +1,6 @@
 [package]
 name = "notepad"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 
 [dependencies]
@@ -13,7 +13,7 @@ syntect = { version = "5.3.0", default-features = false, features = ["default-fa
 winit = "0.30"
 block2 = "0.6"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSError", "NSGeometry", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSArray", "NSEnumerator", "NSError", "NSGeometry", "NSNotification", "NSString", "NSURL"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSApplication", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSControl", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow"] }
 
 [profile.release]
