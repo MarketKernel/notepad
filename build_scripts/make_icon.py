@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Draws assets/icon.png (1024x1024) and assets/icon-256.png. Needs Pillow."""
+"""Draws assets/icon.png (1024x1024), assets/icon-256.png and assets/icon.ico
+(embedded into the Windows .exe). Needs Pillow."""
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -60,4 +61,5 @@ d.rounded_rectangle(px(cx, ys[-1] - 26, cx + 14, ys[-1] + lw + 26), 7 * S, fill=
 big = img.resize((1024, 1024), Image.LANCZOS)
 big.save(out / "icon.png", optimize=True)
 big.resize((256, 256), Image.LANCZOS).save(out / "icon-256.png", optimize=True)
-print("wrote", out / "icon.png", out / "icon-256.png")
+big.save(out / "icon.ico", sizes=[(s, s) for s in (16, 20, 24, 32, 40, 48, 64, 128, 256)])
+print("wrote", out / "icon.png", out / "icon-256.png", out / "icon.ico")

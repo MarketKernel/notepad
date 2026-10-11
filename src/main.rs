@@ -8,6 +8,8 @@ mod highlight;
 mod settings;
 #[cfg(target_os = "macos")]
 mod mac_save;
+#[cfg(windows)]
+mod win_open_with;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,7 +50,21 @@ fn main() -> eframe::Result {
             builder.with_default_menu(false);
         }));
     }
-    #[cfg(not(target_os = "macos"))]
+    // On Windows wgpu would pick Vulkan first; DX12 needs about half the memory
+    // (~160 MB instead of ~300 MB with Intel graphics). GL is the fallback, and
+    // WGPU_BACKEND still overrides. A text editor doesn't need to wake up a
+    // discrete GPU either.
+    #[cfg(windows)]
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
+        use eframe::wgpu::{Backends, PowerPreference};
+        if std::env::var_os("WGPU_BACKEND").is_none() {
+            setup.instance_descriptor.backends = Backends::DX12 | Backends::GL;
+        }
+        if std::env::var_os("WGPU_POWER_PREF").is_none() {
+            setup.power_preference = PowerPreference::LowPower;
+        }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     let _ = &mut options;
 
     eframe::run_native(

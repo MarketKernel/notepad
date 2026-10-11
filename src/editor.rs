@@ -254,7 +254,8 @@ pub struct Editor {
 
 impl Editor {
     pub fn new(doc: Document) -> Self {
-        let crlf = doc.original().is_some_and(|o| o.crlf);
+        // A new document gets the platform's line endings.
+        let crlf = doc.original().map_or(cfg!(windows), |o| o.crlf);
         Self {
             doc,
             cursor: 0,
@@ -1585,6 +1586,8 @@ mod tests {
                 ed: Editor::new(doc),
                 t: 1.0,
             };
+            // Expected texts use "\n" on every platform.
+            h.ed.crlf = h.ed.doc.original().is_some_and(|o| o.crlf);
             h.ed.request_focus(&h.ctx);
             h.frame(vec![]);
             h.frame(vec![]);
@@ -1644,11 +1647,20 @@ mod tests {
     fn perf_big() {
         use std::time::Instant;
         let rss = |label: &str| {
-            let out = std::process::Command::new("ps")
-                .args(["-o", "rss=", "-p", &std::process::id().to_string()])
-                .output()
-                .unwrap();
-            let kb: u64 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(0);
+            let pid = std::process::id().to_string();
+            let kb: u64 = if cfg!(windows) {
+                // Working set: the last CSV field, e.g. "123,456 K" (separator depends on locale).
+                let out = std::process::Command::new("tasklist")
+                    .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+                    .output()
+                    .unwrap();
+                let text = String::from_utf8_lossy(&out.stdout);
+                let mem = text.trim().rsplit("\",\"").next().unwrap_or("");
+                mem.chars().filter(char::is_ascii_digit).collect::<String>().parse().unwrap_or(0)
+            } else {
+                let out = std::process::Command::new("ps").args(["-o", "rss=", "-p", &pid]).output().unwrap();
+                String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(0)
+            };
             println!("  [rss {label}: {} MB]", kb / 1024);
         };
         let path = std::env::var("NOTEPAD_BIG").expect("NOTEPAD_BIG");
