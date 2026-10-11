@@ -16,6 +16,17 @@ objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSArray", "NSEnumerator", "NSError", "NSGeometry", "NSNotification", "NSString", "NSURL"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSApplication", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSControl", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow"] }
 
+# TaskDialog (needs the Common Controls 6 manifest embedded by build.rs) for
+# "Save / Don't Save / Cancel"; the window handle makes dialogs modal to the window.
+[target.'cfg(windows)'.dependencies]
+rfd = { version = "0.17.2", features = ["common-controls-v6"] }
+raw-window-handle = "0.6"
+# "Open with" registration in the registry.
+windows-sys = { version = "0.61", features = ["Win32_Security", "Win32_System_Registry", "Win32_UI_Shell"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = { version = "0.1.31", default-features = false }
+
 [profile.release]
 opt-level = 3
 lto = "thin"

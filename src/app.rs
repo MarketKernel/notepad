@@ -30,6 +30,29 @@ enum PanelResult {
     Cancelled,
 }
 
+/// The window as the owner of native dialogs. Without an owner a Windows dialog
+/// is centered on the screen and can end up behind the window, which then
+/// looks hung.
+#[cfg(windows)]
+struct DialogParent(Option<raw_window_handle::RawWindowHandle>);
+
+#[cfg(windows)]
+impl raw_window_handle::HasWindowHandle for DialogParent {
+    fn window_handle(&self) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
+        // Safety: the window lives as long as the app; dialogs are shown only while it runs.
+        self.0
+            .map(|h| unsafe { raw_window_handle::WindowHandle::borrow_raw(h) })
+            .ok_or(raw_window_handle::HandleError::Unavailable)
+    }
+}
+
+#[cfg(windows)]
+impl raw_window_handle::HasDisplayHandle for DialogParent {
+    fn display_handle(&self) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+        Ok(raw_window_handle::DisplayHandle::windows())
+    }
+}
+
 #[cfg(any(target_os = "macos", all(test, unix)))]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
@@ -75,6 +98,8 @@ pub struct NotepadApp {
     theme: ThemePreference,
     about_open: bool,
     about_icon: Option<egui::TextureHandle>,
+    #[cfg(windows)]
+    dialog_parent: DialogParent,
 }
 
 const CMD: Modifiers = Modifiers::COMMAND;
@@ -90,6 +115,18 @@ fn replace_shortcut() -> KeyboardShortcut {
         sc(CMD.plus(Modifiers::ALT), Key::F)
     } else {
         sc(CMD, Key::H)
+    }
+}
+
+/// A menu of the menu bar. As in native menus, once a menu is open, pointing at
+/// another one in the bar opens it (egui itself opens them only on click).
+fn bar_menu(ui: &mut egui::Ui, title: &str, content: impl FnOnce(&mut egui::Ui)) {
+    let response = ui.menu_button(title, content).response;
+    let ctx = ui.ctx();
+    let id = egui::Popup::default_response_id(&response);
+    if response.hovered() && egui::Popup::is_any_open(ctx) && !egui::Popup::is_id_open(ctx, id) {
+        egui::Popup::open_id(ctx, id);
+        ctx.request_repaint();
     }
 }
 
@@ -130,6 +167,11 @@ impl NotepadApp {
             theme,
             about_open: false,
             about_icon: None,
+            #[cfg(windows)]
+            dialog_parent: DialogParent({
+                use raw_window_handle::HasWindowHandle;
+                cc.window_handle().ok().map(|h| h.as_raw())
+            }),
         };
         if let Some(p) = path {
             app.start_loading(p);
@@ -227,21 +269,31 @@ impl NotepadApp {
 
     fn ask_save(&self) -> Choice {
         use rfd::{MessageButtons, MessageDialog, MessageDialogResult as R, MessageLevel};
+        // Windows: the question in the dialog and the app name as its title, like Notepad.
+        #[cfg(windows)]
+        let dialog = MessageDialog::new()
+            .set_parent(&self.dialog_parent)
+            .set_level(MessageLevel::Warning)
+            .set_title("Notepad")
+            .set_description(format!("Do you want to save changes to {}?", self.file_name()))
+            .set_buttons(MessageButtons::YesNoCancelCustom(
+                "Save".into(),
+                "Don\u{2019}t Save".into(),
+                "Cancel".into(),
+            ));
+        #[cfg(not(windows))]
         let dialog = MessageDialog::new()
             .set_level(MessageLevel::Warning)
             .set_title(format!(
                 "Do you want to save the changes made to the document \u{201c}{}\u{201d}?",
                 self.file_name()
             ))
-            .set_description("Your changes will be lost if you don\u{2019}t save them.");
-        #[cfg(windows)]
-        let dialog = dialog.set_buttons(MessageButtons::YesNoCancel);
-        #[cfg(not(windows))]
-        let dialog = dialog.set_buttons(MessageButtons::YesNoCancelCustom(
-            "Save".into(),
-            "Cancel".into(),
-            "Don\u{2019}t Save".into(),
-        ));
+            .set_description("Your changes will be lost if you don\u{2019}t save them.")
+            .set_buttons(MessageButtons::YesNoCancelCustom(
+                "Save".into(),
+                "Cancel".into(),
+                "Don\u{2019}t Save".into(),
+            ));
         match dialog.show() {
             R::Yes | R::Ok => Choice::Save,
             R::No => Choice::Discard,
@@ -266,6 +318,10 @@ impl NotepadApp {
     #[cfg(not(target_os = "macos"))]
     fn save_as(&mut self) -> bool {
         let mut dialog = rfd::FileDialog::new().set_file_name(self.suggested_name());
+        #[cfg(windows)]
+        {
+            dialog = dialog.set_parent(&self.dialog_parent);
+        }
         if let Some(dir) = self.path.as_ref().and_then(|p| p.parent()) {
             dialog = dialog.set_directory(dir);
         }
@@ -339,6 +395,10 @@ impl NotepadApp {
             return;
         }
         let mut dialog = rfd::FileDialog::new();
+        #[cfg(windows)]
+        {
+            dialog = dialog.set_parent(&self.dialog_parent);
+        }
         if let Some(dir) = self.path.as_ref().and_then(|p| p.parent()) {
             dialog = dialog.set_directory(dir);
         }
@@ -351,19 +411,6 @@ impl NotepadApp {
         if self.confirm_discard() {
             self.start_loading(p);
         }
-    }
-
-    fn new_document(&mut self) {
-        if !self.confirm_discard() {
-            return;
-        }
-        let mut ed = Editor::new(Document::new());
-        ed.wrap = self.editor.wrap;
-        ed.line_numbers = self.editor.line_numbers;
-        ed.font_size = self.editor.font_size;
-        self.editor = ed;
-        self.path = None;
-        self.message = None;
     }
 
     /// A new window (a separate process), optionally opening `path` in it.
@@ -511,7 +558,7 @@ impl NotepadApp {
         let ctx = ui.ctx().clone();
         let short = |s: KeyboardShortcut| ctx.format_shortcut(&s);
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
+            bar_menu(ui, "File", |ui| {
                 if ui.add(egui::Button::new("New Window").shortcut_text(short(sc(CMD, Key::N)))).clicked() {
                     self.new_window(None);
                 }
@@ -530,7 +577,7 @@ impl NotepadApp {
                     ctx.send_viewport_cmd(ViewportCommand::Close);
                 }
             });
-            ui.menu_button("Edit", |ui| {
+            bar_menu(ui, "Edit", |ui| {
                 let now = ui.input(|i| i.time);
                 if ui.add_enabled(self.editor.can_undo(), egui::Button::new("Undo").shortcut_text(short(sc(CMD, Key::Z)))).clicked() {
                     self.editor.undo();
@@ -569,13 +616,8 @@ impl NotepadApp {
                 if ui.add(egui::Button::new("Go to Line…").shortcut_text(short(sc(CMD, Key::L)))).clicked() {
                     self.goto_open = true;
                 }
-                ui.separator();
-                if ui.button("Clear (new document)").clicked() {
-                    self.new_document();
-                    self.editor.request_focus(&ctx);
-                }
             });
-            ui.menu_button("View", |ui| {
+            bar_menu(ui, "View", |ui| {
                 ui.checkbox(&mut self.editor.wrap, "Word Wrap");
                 ui.checkbox(&mut self.editor.line_numbers, "Line Numbers");
                 ui.separator();
@@ -606,22 +648,42 @@ impl NotepadApp {
                     }
                 }
             });
-            ui.menu_button("Language", |ui| {
-                egui::ScrollArea::vertical().max_height(500.0).show(ui, |ui| {
-                    if ui.radio(self.editor.language.is_none(), "Plain Text").clicked() {
-                        self.editor.language = None;
-                    }
-                    ui.separator();
-                    let langs = self.languages.get_or_insert_with(highlight::language_names);
-                    for name in langs.iter() {
-                        let on = self.editor.language.as_deref() == Some(name.as_str());
-                        if ui.radio(on, name).clicked() {
-                            self.editor.language = Some(name.clone());
+            bar_menu(ui, "Settings", |ui| {
+                ui.menu_button("Language", |ui| {
+                    egui::ScrollArea::vertical().max_height(500.0).show(ui, |ui| {
+                        if ui.radio(self.editor.language.is_none(), "Plain Text").clicked() {
+                            self.editor.language = None;
                         }
-                    }
+                        ui.separator();
+                        let langs = self.languages.get_or_insert_with(highlight::language_names);
+                        for name in langs.iter() {
+                            let on = self.editor.language.as_deref() == Some(name.as_str());
+                            if ui.radio(on, name).clicked() {
+                                self.editor.language = Some(name.clone());
+                            }
+                        }
+                    });
                 });
+                #[cfg(windows)]
+                {
+                    use crate::win_open_with;
+                    ui.separator();
+                    let mut on = win_open_with::is_registered();
+                    if ui
+                        .checkbox(&mut on, "Show in Explorer\u{2019}s \u{201c}Open with\u{201d} menu")
+                        .on_hover_text("Lets you open any file with this editor from Explorer (for your user account only).")
+                        .clicked()
+                    {
+                        let result = if on { win_open_with::register() } else { win_open_with::unregister() };
+                        self.message = Some(match result {
+                            Ok(()) if on => "Added to Explorer\u{2019}s \u{201c}Open with\u{201d} menu".into(),
+                            Ok(()) => "Removed from Explorer\u{2019}s \u{201c}Open with\u{201d} menu".into(),
+                            Err(e) => format!("Cannot change Explorer\u{2019}s \u{201c}Open with\u{201d} menu: {e}"),
+                        });
+                    }
+                }
             });
-            ui.menu_button("Help", |ui| {
+            bar_menu(ui, "Help", |ui| {
                 if ui.button("About Notepad").clicked() {
                     self.about_open = true;
                 }

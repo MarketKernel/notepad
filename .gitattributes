@@ -1,0 +1,6 @@
+# Keep LF in the repository whatever the checkout uses (a CRLF copy of
+# bundle-macos.sh would not run on macOS).
+* text=auto
+*.sh text eol=lf
+*.png binary
+*.ico binary
