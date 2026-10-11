@@ -19,8 +19,34 @@ A minimal plain-text editor for macOS, Windows and Linux.
 cargo run --release                 # empty document
 cargo run --release -- path/to/file # open a file
 ./build_scripts/bundle-macos.sh     # builds target/release/Notepad.app
+./build_scripts/bundle-macos.sh --universal  # Apple Silicon + Intel, in target/universal-apple-darwin/release
 cargo test --release                # tests
 ```
+
+## Prebuilt macOS app
+
+Download `Notepad-<version>-macos-universal.zip` (Apple Silicon + Intel) or
+`Notepad-<version>-macos-arm64.zip` from
+[Releases](https://github.com/MarketKernel/notepad/releases).
+
+To publish a release, set `version` in `Cargo.toml`, commit, and push a matching
+`v<version>` tag; GitHub Actions builds both archives and attaches them to a new
+release (a tag that doesn't match `Cargo.toml` fails the build):
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The app is not signed or notarized, so macOS blocks it after download. Unzip it
+and remove the quarantine flag:
+
+```sh
+xattr -dr com.apple.quarantine Notepad.app
+```
+
+Alternatively, try to open the app once, then click "Open Anyway" in
+System Settings → Privacy & Security.
 
 ## Shortcuts (Cmd on macOS, Ctrl elsewhere)
 
