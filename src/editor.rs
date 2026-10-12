@@ -228,6 +228,8 @@ pub struct Editor {
     top_line: u64,
     top_row: usize,
     scroll_frac: f32,
+    /// Furthest (top_line, top_row) that still keeps the view full.
+    max_top: (u64, usize),
     h_offset: f32,
     max_line_w: f32,
     desired_x: Option<f32>,
@@ -269,6 +271,7 @@ impl Editor {
             top_line: 0,
             top_row: 0,
             scroll_frac: 0.0,
+            max_top: (0, 0),
             h_offset: 0.0,
             max_line_w: 0.0,
             desired_x: None,
@@ -497,6 +500,41 @@ impl Editor {
                 break;
             }
         }
+    }
+
+    /// Top position at which the last row of the document is the last visible row.
+    fn compute_max_top(&self, ui: &Ui) -> (u64, usize) {
+        let mut line = self.doc.line_count() - 1;
+        let mut row = self.rows_of(ui, line) - 1;
+        for _ in 1..self.view_rows {
+            if row > 0 {
+                row -= 1;
+            } else if line > 0 {
+                line -= 1;
+                row = self.rows_of(ui, line) - 1;
+            } else {
+                break;
+            }
+        }
+        (line, row)
+    }
+
+    /// Don't scroll past the end: the view stays put instead of overshooting
+    /// and snapping back (which made trackpad scrolling and thumb dragging jitter).
+    fn clamp_top(&mut self) {
+        if (self.top_line, self.top_row) >= self.max_top {
+            (self.top_line, self.top_row) = self.max_top;
+            self.scroll_frac = 0.0;
+        }
+    }
+
+    /// Scroll position and its maximum, in lines (wrapped rows count as fractions).
+    fn v_scroll(&self, ui: &Ui) -> (f64, f64) {
+        let rows = |line| self.rows_of(ui, line) as f64;
+        let pos = self.top_line as f64
+            + (self.top_row as f64 + (self.scroll_frac / self.row_h) as f64) / rows(self.top_line);
+        let max = self.max_top.0 as f64 + self.max_top.1 as f64 / rows(self.max_top.0);
+        (pos, max)
     }
 
     fn set_top(&mut self, line: u64) {
@@ -1277,6 +1315,7 @@ impl Editor {
         self.top_line = self.top_line.min(self.doc.line_count() - 1);
         self.cursor = self.cursor.min(self.doc.len());
         self.anchor = self.anchor.min(self.doc.len());
+        self.max_top = self.compute_max_top(ui);
 
         // Mouse wheel / trackpad.
         if response.hovered() || response.contains_pointer() {
@@ -1292,6 +1331,7 @@ impl Editor {
         if std::mem::take(&mut self.scroll_to_cursor) {
             self.ensure_cursor_visible(ui, text_rect.width());
         }
+        self.clamp_top();
 
         let (mut vis, underfilled) = self.visible_lines(ui, text_rect.height());
         if underfilled {
@@ -1502,13 +1542,13 @@ impl Editor {
             Pos2::new(full.right() - SCROLLBAR_W, full.top()),
             Pos2::new(full.right(), text_rect.bottom()),
         );
-        let lines = self.doc.line_count();
-        let rows = self.view_rows as u64;
-        if lines > 1 && (lines > rows || self.top_line > 0 || self.top_row > 0) {
-            let thumb_h = (track.height() * rows as f32 / (lines + rows) as f32)
-                .clamp(24.0, track.height());
+        let lines = self.doc.line_count() as f64;
+        let (pos, max) = self.v_scroll(ui);
+        if max > 0.0 || pos > 0.0 {
+            let max = max.max(pos);
+            let thumb_h = (track.height() * ((lines - max) / lines) as f32).clamp(24.0, track.height());
             let range = (track.height() - thumb_h).max(1.0);
-            let frac = self.top_line as f64 / (lines - 1) as f64;
+            let frac = if max > 0.0 { pos / max } else { 0.0 };
             let y = track.top() + (frac * range as f64) as f32;
             let thumb = Rect::from_min_size(Pos2::new(track.left() + 2.0, y), Vec2::new(SCROLLBAR_W - 4.0, thumb_h));
             let resp = ui.interact(track, Self::id().with("vscroll"), Sense::click_and_drag());
@@ -1521,7 +1561,11 @@ impl Editor {
                 && let (Some(p), Some(off)) = (resp.interact_pointer_pos(), self.v_drag_offset)
             {
                 let f = ((p.y - off - track.top()) / range).clamp(0.0, 1.0) as f64;
-                self.set_top((f * (lines - 1) as f64).round() as u64);
+                let target = f * max;
+                self.set_top(target as u64);
+                let rows = self.rows_of(ui, self.top_line);
+                self.top_row = (((target - self.top_line as f64) * rows as f64) as usize).min(rows - 1);
+                self.clamp_top();
             }
             if !resp.dragged() && !resp.drag_started() {
                 self.v_drag_offset = None;
@@ -1809,6 +1853,39 @@ mod tests {
         assert!(h.ed.find("line 99999 ", true, false));
         assert!(h.ed.find("LINE 7 ", false, false));
         assert_eq!(h.ed.doc.line_of(h.ed.cursor), 7);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn wheel_stops_at_end_of_short_doc() {
+        let (doc, path) = big_doc(60);
+        let mut h = Harness::new(doc);
+        h.frame(vec![Event::PointerMoved(Pos2::new(400.0, 300.0))]);
+        let wheel = |dy| Event::MouseWheel {
+            unit: MouseWheelUnit::Point,
+            delta: Vec2::new(0.0, dy),
+            phase: TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        };
+        for _ in 0..20 {
+            h.frame(vec![wheel(-200.0)]);
+        }
+        let end = (h.ed.top_line, h.ed.top_row);
+        assert_eq!(end, h.ed.max_top);
+        assert!(end.0 > 0);
+        // Small trackpad deltas at the end don't move (or jiggle) the view.
+        for _ in 0..20 {
+            h.frame(vec![wheel(-3.0)]);
+            assert_eq!((h.ed.top_line, h.ed.top_row, h.ed.scroll_frac), (end.0, end.1, 0.0));
+        }
+        // The scroll bar thumb is at the very bottom.
+        let mut at_end = false;
+        let ed = &h.ed;
+        let _ = h.ctx.run_ui(RawInput::default(), |ui| {
+            let (pos, max) = ed.v_scroll(ui);
+            at_end = pos == max;
+        });
+        assert!(at_end);
         std::fs::remove_file(path).unwrap();
     }
 
