@@ -1388,6 +1388,22 @@ impl Editor {
                 self.anchor = r.start;
                 self.cursor = r.end;
             }
+            // Right click (opens the context menu): keeps the selection when made
+            // inside it, otherwise moves the cursor there.
+            let secondary = ui.input(|i| i.pointer.secondary_pressed());
+            if secondary && text_rect.contains(p) && response.contains_pointer() {
+                if !has_focus {
+                    response.request_focus();
+                }
+                let pos = self.hit_test(&vis, origin, p);
+                let sel = self.selection();
+                if sel.is_empty() || !(sel.start..=sel.end).contains(&pos) {
+                    self.cursor = pos;
+                    self.anchor = pos;
+                    self.desired_x = None;
+                    self.last_kind = None;
+                }
+            }
         }
 
         self.paint(ui, full, text_rect, gutter_w, origin, &vis, has_focus);

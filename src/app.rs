@@ -554,6 +554,45 @@ impl NotepadApp {
 
     // ---- UI ------------------------------------------------------------------------
 
+    /// Undo / Redo / Cut / Copy / Paste / Select All: shared by the Edit menu and
+    /// the editor's context menu.
+    fn edit_items(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let short = |s: KeyboardShortcut| ctx.format_shortcut(&s);
+        let now = ui.input(|i| i.time);
+        let mut clicked = false;
+        let mut item = |ui: &mut egui::Ui, enabled: bool, label: &str, s: KeyboardShortcut| {
+            let c = ui.add_enabled(enabled, egui::Button::new(label).shortcut_text(short(s))).clicked();
+            clicked |= c;
+            c
+        };
+        if item(ui, self.editor.can_undo(), "Undo", sc(CMD, Key::Z)) {
+            self.editor.undo();
+        }
+        if item(ui, self.editor.can_redo(), "Redo", sc(CMD_SHIFT, Key::Z)) {
+            self.editor.redo();
+        }
+        ui.separator();
+        let has_sel = self.editor.has_selection();
+        if item(ui, has_sel, "Cut", sc(CMD, Key::X)) {
+            self.editor.cut(&ctx, now);
+        }
+        if item(ui, has_sel, "Copy", sc(CMD, Key::C)) {
+            self.editor.copy(&ctx);
+        }
+        if item(ui, true, "Paste", sc(CMD, Key::V)) {
+            ctx.send_viewport_cmd(ViewportCommand::RequestPaste);
+        }
+        ui.separator();
+        if item(ui, true, "Select All", sc(CMD, Key::A)) {
+            self.editor.select_all();
+        }
+        // Clicking an item takes keyboard focus away from the text.
+        if clicked {
+            self.editor.request_focus(&ctx);
+        }
+    }
+
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let short = |s: KeyboardShortcut| ctx.format_shortcut(&s);
@@ -578,28 +617,7 @@ impl NotepadApp {
                 }
             });
             bar_menu(ui, "Edit", |ui| {
-                let now = ui.input(|i| i.time);
-                if ui.add_enabled(self.editor.can_undo(), egui::Button::new("Undo").shortcut_text(short(sc(CMD, Key::Z)))).clicked() {
-                    self.editor.undo();
-                }
-                if ui.add_enabled(self.editor.can_redo(), egui::Button::new("Redo").shortcut_text(short(sc(CMD_SHIFT, Key::Z)))).clicked() {
-                    self.editor.redo();
-                }
-                ui.separator();
-                let has_sel = self.editor.has_selection();
-                if ui.add_enabled(has_sel, egui::Button::new("Cut").shortcut_text(short(sc(CMD, Key::X)))).clicked() {
-                    self.editor.cut(&ctx, now);
-                }
-                if ui.add_enabled(has_sel, egui::Button::new("Copy").shortcut_text(short(sc(CMD, Key::C)))).clicked() {
-                    self.editor.copy(&ctx);
-                }
-                if ui.add(egui::Button::new("Paste").shortcut_text(short(sc(CMD, Key::V)))).clicked() {
-                    self.editor.request_focus(&ctx);
-                    ctx.send_viewport_cmd(ViewportCommand::RequestPaste);
-                }
-                if ui.add(egui::Button::new("Select All").shortcut_text(short(sc(CMD, Key::A)))).clicked() {
-                    self.editor.select_all();
-                }
+                self.edit_items(ui);
                 ui.separator();
                 if ui.add(egui::Button::new("Find…").shortcut_text(short(sc(CMD, Key::F)))).clicked() {
                     self.open_find(false);
@@ -914,7 +932,8 @@ impl eframe::App for NotepadApp {
                     l.cancel.store(true, Ordering::Relaxed);
                 }
             } else {
-                self.editor.show(ui);
+                let response = self.editor.show(ui);
+                response.context_menu(|ui| self.edit_items(ui));
             }
         });
 
@@ -1008,5 +1027,67 @@ mod screenshots {
         h.state_mut().about_open = true;
         h.run_steps(3);
         h.render().unwrap().save(dir.join("app-about.png")).unwrap();
+
+        // Context menu over a selection.
+        h.state_mut().about_open = false;
+        assert!(h.state_mut().editor.find("Hello world", true, false));
+        h.run_steps(2);
+        let p = egui::pos2(230.0, 40.0);
+        h.event(egui::Event::PointerMoved(p));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Secondary, pressed, modifiers: Modifiers::NONE });
+            h.run_steps(2);
+        }
+        h.render().unwrap().save(dir.join("app-context-menu.png")).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod context_menu_tests {
+    use super::*;
+    use egui_kittest::kittest::Queryable;
+
+    fn right_click(h: &mut egui_kittest::Harness<'_, NotepadApp>, p: egui::Pos2) {
+        h.event(egui::Event::PointerMoved(p));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
+            h.run_steps(2);
+        }
+    }
+
+    #[test]
+    fn right_click_menu() {
+        let mut h = egui_kittest::Harness::builder()
+            .with_size([600.0, 400.0])
+            .build_eframe(|cc| NotepadApp::new(cc, None));
+        h.run_steps(2);
+        h.event(egui::Event::Paste("hello world".into()));
+        h.run_steps(2);
+        h.state_mut().editor.select_all();
+        h.run_steps(2);
+
+        // Inside the selection: it is kept, and Cut removes it.
+        right_click(&mut h, egui::pos2(70.0, 40.0));
+        assert!(h.state().editor.has_selection());
+        h.get_by_label_contains("Cut").click();
+        h.run_steps(3);
+        assert!(!h.state().editor.has_selection());
+        assert_eq!(h.state_mut().editor.cursor_line_col(), (1, 1));
+        assert!(h.query_by_label_contains("Cut").is_none(), "menu closes after a click");
+        assert!(h.ctx.memory(|m| m.has_focus(Editor::id())), "editor keeps focus");
+
+        h.event(egui::Event::Paste("hello world\nsecond line".into()));
+        h.run_steps(2);
+        assert!(h.state_mut().editor.find("hello", true, false));
+        h.run_steps(2);
+        // Outside the selection (on the second line): the cursor moves there instead.
+        right_click(&mut h, egui::pos2(300.0, 200.0));
+        assert!(!h.state().editor.has_selection());
+        assert!(h.query_by_label_contains("Paste").is_some());
     }
 }
